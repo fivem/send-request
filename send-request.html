@@ -52,6 +52,13 @@ button{background:none;border:0;cursor:pointer}
 
 /* ============ shell ============ */
 .shell{height:100%;display:flex;flex-direction:column}
+.page-foot{
+  flex:0 0 auto;display:flex;align-items:center;justify-content:center;
+  height:30px;padding:0 14px;border-top:1px solid var(--line);
+  background:var(--panel);color:var(--ink-3);font-size:11px;letter-spacing:.03em;
+}
+.page-foot .foot-sep{color:var(--line-2);margin:0 6px}
+
 .topbar{
   height:50px;flex:0 0 50px;display:flex;align-items:center;gap:14px;padding:0 14px;
   background:var(--panel);border-bottom:1px solid var(--line);position:relative;z-index:30;
@@ -613,6 +620,10 @@ h2.sec::after{content:"";flex:1;height:1px;background:var(--line)}
       </div>
     </div>
   </section>
+
+  <footer class="page-foot" role="contentinfo">
+    <span>© 2026 ReqLab</span><span class="foot-sep" aria-hidden="true">·</span><span>API 调试台</span>
+  </footer>
 </div>
 
 <div class="toast-root" id="toast-root"></div>
