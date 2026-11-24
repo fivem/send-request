@@ -314,6 +314,24 @@ h1{font-family:var(--serif);font-size:clamp(26px,3.4vw,38px);line-height:1.22;fo
 .config{padding:18px 18px 16px;position:relative;z-index:1;margin-bottom:18px}
 .config-grid{display:grid;grid-template-columns:1.5fr 1fr 1fr .6fr;gap:12px}
 .config-grid .field .inp{height:34px;font-family:var(--mono);font-size:12px}
+.config-grid .field.full{grid-column:1/-1}
+.config-body-head{display:flex;align-items:center;gap:10px;margin-bottom:2px}
+.config-body-head > label{font-size:10.5px;letter-spacing:.08em;text-transform:uppercase;color:var(--ink-3);font-weight:600}
+.config-body-head > label span{text-transform:none;letter-spacing:0;font-weight:500;margin-left:7px}
+.config-body-actions{margin-left:auto;display:flex;align-items:center;gap:4px}
+.config-body-actions .btn{height:24px;padding:0 8px;font-size:11px}
+#probe-body{
+  width:100%;min-height:158px;resize:vertical;padding:10px 12px;tab-size:2;
+  font-family:var(--mono);font-size:12px;line-height:1.65;
+  background:var(--panel);border:1px solid var(--line-2);border-radius:var(--r);
+  transition:border-color .15s,box-shadow .15s;
+}
+#probe-body:hover{border-color:var(--ink-3)}
+#probe-body:focus{outline:none;border-color:var(--teal);box-shadow:0 0 0 3px rgba(11,110,102,.09)}
+#probe-body.bad{border-color:#e3b8b1;box-shadow:0 0 0 3px rgba(165,44,30,.07)}
+.probe-body-note{font-family:var(--mono);font-size:10.5px;line-height:1.6;color:var(--ink-3);min-height:15px}
+.probe-body-note.bad{color:var(--red)}
+.probe-body-note.good{color:var(--teal-deep)}
 .config-actions{display:flex;align-items:center;gap:9px;margin-top:15px;flex-wrap:wrap;padding-top:14px;border-top:1px dashed var(--line)}
 .chk{display:inline-flex;align-items:center;gap:6px;font-size:12px;color:var(--ink-2);cursor:pointer;user-select:none}
 .chk input{accent-color:var(--teal);width:14px;height:14px;cursor:pointer}
@@ -424,6 +442,11 @@ h2.sec::after{content:"";flex:1;height:1px;background:var(--line)}
   .kv-head,.kv-row{grid-template-columns:24px minmax(80px,1fr) minmax(110px,1.2fr) 24px}
   .kv-head div:nth-child(4),.kv-row input.desc{display:none}
 }
+@media (max-width:600px){
+  .config-body-head{flex-wrap:wrap}
+  .config-body-head > label span{display:none}
+  .config-body-actions{margin-left:0}
+}
 @media (prefers-reduced-motion:reduce){*{animation-duration:.01ms !important;transition-duration:.01ms !important}}
 </style>
 </head>
@@ -507,6 +530,17 @@ h2.sec::after{content:"";flex:1;height:1px;background:var(--line)}
               <option value="15000">15 秒</option>
               <option value="45000">45 秒</option>
             </select>
+          </div>
+          <div class="field full">
+            <div class="config-body-head">
+              <label for="probe-body">请求 Body <span>JSON · 等宽字体 · 留空使用内置示例</span></label>
+              <div class="config-body-actions">
+                <button class="btn ghost" id="btn-probe-body-reset" title="恢复内置示例 Body"><svg><use href="#i-history"/></svg>恢复默认</button>
+                <button class="btn ghost" id="btn-probe-body-import" title="把 API 调试台当前请求的 Body 复制到检测视图"><svg><use href="#i-download"/></svg>导入调试台 Body</button>
+              </div>
+            </div>
+            <textarea id="probe-body" spellcheck="false" rows="7" aria-describedby="probe-body-note" placeholder='{&#10;  "messages": [{ "role": "user", "content": "用一个短句确认你已就绪。" }],&#10;  "max_tokens": 64&#10;}'></textarea>
+            <div class="probe-body-note" id="probe-body-note" role="status" aria-live="polite"></div>
           </div>
         </div>
         <div class="config-actions">
@@ -722,6 +756,12 @@ function emptyRequest(over) {
 }
 function kv(k, v, on) { return { key: k || '', value: v == null ? '' : v, desc: '', on: on !== false }; }
 
+const PROBE_DEFAULT_BODY = JSON.stringify({
+  model: '{{model}}',
+  messages: [{ role: 'user', content: '用一个短句确认你已就绪。' }],
+  max_tokens: 64, temperature: 0.2, stream: false
+}, null, 2);
+
 function defaultState() {
   const localBase = 'http://192.168.11.196:8000';
   const chatBody = JSON.stringify({
@@ -763,7 +803,7 @@ function defaultState() {
     settings: {
       timeout: 60000, redirect: 'follow',
       probeBase: localBase, probeModel: 'qwen3.5-35b', probeKey: '',
-      probeTimeout: 6000, probeStream: true
+      probeTimeout: 6000, probeStream: true, probeBody: PROBE_DEFAULT_BODY
     },
     current: emptyRequest({ name: '对话补全', method: 'POST', url: '{{baseUrl}}/v1/chat/completions', headers: [kv('Content-Type', 'application/json')], bodyMode: 'json', bodyRaw: chatBody })
   };
@@ -777,6 +817,7 @@ try {
 } catch (e) { state = defaultState(); }
 
 if (!state.settings) state.settings = defaultState().settings;
+if (typeof state.settings.probeBody !== 'string') state.settings.probeBody = PROBE_DEFAULT_BODY;
 if (!state.current) state.current = emptyRequest();
 
 let saveTimer;
@@ -2104,6 +2145,97 @@ function renderVerdict(kind, title, desc, meta) {
     '<div class="verdict-meta">' + meta + '</div></div>';
 }
 
+/* ---- 请求 Body ---- */
+function probeBodySource() {
+  const ta = $('#probe-body');
+  return ((ta ? ta.value : '').trim()) || PROBE_DEFAULT_BODY;
+}
+function isProbeModelPlaceholder(v) {
+  return typeof v === 'string' && (!v.trim() || /^\{\{\s*model\s*\}\}$/.test(v.trim()));
+}
+function probeModelFromBody(obj) {
+  if (!obj || typeof obj !== 'object' || Array.isArray(obj)) return '';
+  if (typeof obj.model !== 'string' || isProbeModelPlaceholder(obj.model)) return '';
+  return obj.model.trim();
+}
+function updateProbeBodyNote() {
+  const ta = $('#probe-body'), note = $('#probe-body-note');
+  if (!ta || !note) return true;
+  const raw = ta.value.trim();
+  ta.classList.remove('bad');
+  if (!raw) {
+    note.textContent = 'Body 为空，检测时将使用内置示例。';
+    note.className = 'probe-body-note';
+    return true;
+  }
+  try {
+    const obj = JSON.parse(raw);
+    if (!obj || typeof obj !== 'object' || Array.isArray(obj)) throw new Error('顶层必须是 JSON 对象');
+    note.textContent = 'JSON 合法' + (probeModelFromBody(obj) ? ' · 以 Body 中的 model 为准' : ' · model 跟随上方输入');
+    note.className = 'probe-body-note good';
+    return true;
+  } catch (err) {
+    note.textContent = 'JSON 语法错误：' + err.message;
+    note.className = 'probe-body-note bad';
+    ta.classList.add('bad');
+    return false;
+  }
+}
+function showProbeBodyError(msg) {
+  const ta = $('#probe-body'), note = $('#probe-body-note');
+  if (note) { note.textContent = msg; note.className = 'probe-body-note bad'; }
+  if (ta) { ta.classList.add('bad'); ta.focus(); }
+  toast('Body 解析失败，未发起检测', 'err');
+}
+function syncProbeBodyToModel() {
+  const ta = $('#probe-body');
+  if (!ta || !ta.value.trim()) return;
+  try {
+    const model = probeModelFromBody(JSON.parse(ta.value));
+    if (model) {
+      $('#probe-model').value = model;
+      state.settings.probeModel = model;
+      persist();
+    }
+  } catch (err) { /* 语法错误由输入框下方的提示展示 */ }
+}
+function resetProbeBody() {
+  const ta = $('#probe-body');
+  if (!ta) return;
+  ta.value = PROBE_DEFAULT_BODY;
+  state.settings.probeBody = PROBE_DEFAULT_BODY;
+  persist();
+  updateProbeBodyNote();
+  toast('已恢复内置示例 Body', 'ok');
+}
+function importStudioBody() {
+  const c = cur();
+  const mode = c.bodyMode || 'none';
+  if (mode === 'none') return toast('调试台当前请求没有 Body', 'err');
+  if (mode === 'binary') return toast('二进制 Body 无法导入检测视图', 'err');
+  let raw;
+  if (mode === 'form-data' || mode === 'urlencoded') {
+    const obj = {};
+    (c.bodyForm || []).forEach((f) => { if (f && f.on !== false && f.key) obj[f.key] = f.value; });
+    if (!Object.keys(obj).length) return toast('调试台当前表单 Body 为空', 'err');
+    raw = JSON.stringify(obj);
+  } else {
+    raw = (c.bodyRaw || '').trim();
+    if (!raw) return toast('调试台当前请求的 Body 为空', 'err');
+  }
+  let obj;
+  try { obj = JSON.parse(raw); } catch (e) { return toast('调试台 Body 不是合法 JSON，无法导入', 'err'); }
+  if (!obj || typeof obj !== 'object' || Array.isArray(obj)) return toast('调试台 Body 不是 JSON 对象，无法导入', 'err');
+  const text = JSON.stringify(obj, null, 2);
+  $('#probe-body').value = text;
+  state.settings.probeBody = text;
+  persist();
+  updateProbeBodyNote();
+  syncProbeBodyToModel();
+  const model = probeModelFromBody(obj);
+  toast(model ? '已导入调试台 Body，model 已同步为 ' + model : '已导入调试台 Body', 'ok');
+}
+
 let probing = false;
 async function runProbe() {
   if (probing) return;
@@ -2113,10 +2245,27 @@ async function runProbe() {
   const wantStream = $('#probe-stream').checked;
   if (!base) { toast('请填写 Base URL', 'err'); return; }
 
+  /* Body 先校验，非法 JSON 不发起任何请求 */
+  let bodyObj;
+  try {
+    bodyObj = JSON.parse(probeBodySource());
+  } catch (err) {
+    showProbeBodyError('JSON 语法错误：' + err.message);
+    return;
+  }
+  if (!bodyObj || typeof bodyObj !== 'object' || Array.isArray(bodyObj)) {
+    showProbeBodyError('Body 必须是 JSON 对象（以 { 开头、} 结尾）');
+    return;
+  }
+  const bodyModel = probeModelFromBody(bodyObj);
+  if (bodyModel) $('#probe-model').value = bodyModel;
+
   state.settings.probeBase = $('#probe-base').value.trim();
   state.settings.probeKey = key;
   state.settings.probeTimeout = timeout;
   state.settings.probeStream = wantStream;
+  state.settings.probeModel = $('#probe-model').value.trim();
+  state.settings.probeBody = $('#probe-body').value;
   persist();
 
   probing = true;
@@ -2129,7 +2278,7 @@ async function runProbe() {
 
   const t0 = performance.now();
   let endpointOk = false, corsBlocked = false, models = [], modelListUrl = '';
-  let chosenModel = $('#probe-model').value.trim();
+  let chosenModel = bodyModel || $('#probe-model').value.trim();
   let inferenceOk = false, streamOk = false;
 
   /* 1. 端点可达 */
@@ -2169,6 +2318,8 @@ async function runProbe() {
     } else if (!chosenModel) {
       chosenModel = models[0];
       $('#probe-model').value = chosenModel;
+      state.settings.probeModel = chosenModel;
+      persist();
       p2.done('ok', null, '已自动选择：' + chosenModel + '\n全部模型：' + models.join('、'));
     } else if (models.some((m) => m === chosenModel || m.indexOf(chosenModel) >= 0)) {
       p2.done('ok', null, '模型「' + chosenModel + '」已在服务中注册');
@@ -2179,12 +2330,11 @@ async function runProbe() {
 
   /* 3. 推理 */
   if (endpointOk) {
-    const p3 = createProbe('推理响应', 'POST /v1/chat/completions');
-    const payload = {
+    const p3 = createProbe('推理响应', 'POST /v1/chat/completions · 使用上方 Body');
+    const payload = Object.assign({}, bodyObj, {
       model: chosenModel || 'default',
-      messages: [{ role: 'user', content: '用一个短句确认你已就绪。' }],
-      max_tokens: 64, temperature: 0.2, stream: false
-    };
+      stream: false
+    });
     const r3 = await probeFetch(base + '/v1/chat/completions', {
       method: 'POST',
       headers: Object.assign({ 'Content-Type': 'application/json' }, authHeader(key)),
@@ -2220,11 +2370,10 @@ async function runProbe() {
       const res = await fetch(base + '/v1/chat/completions', {
         method: 'POST',
         headers: Object.assign({ 'Content-Type': 'application/json', Accept: 'text/event-stream' }, authHeader(key)),
-        body: JSON.stringify({
+        body: JSON.stringify(Object.assign({}, bodyObj, {
           model: chosenModel || 'default',
-          messages: [{ role: 'user', content: '数到三。' }],
-          max_tokens: 40, stream: true
-        }),
+          stream: true
+        })),
         signal: ctrl.signal
       });
       if (!res.ok || !res.body) {
@@ -2329,6 +2478,21 @@ $('#probe-results').addEventListener('click', (e) => {
 });
 $('#btn-probe').addEventListener('click', runProbe);
 $('#btn-probe-models').addEventListener('click', listModelsOnly);
+$('#btn-probe-body-reset').addEventListener('click', resetProbeBody);
+$('#btn-probe-body-import').addEventListener('click', importStudioBody);
+const persistProbeBodySoon = debounce(() => {
+  state.settings.probeBody = $('#probe-body').value;
+  persist();
+}, 300);
+$('#probe-body').addEventListener('input', () => {
+  updateProbeBodyNote();
+  persistProbeBodySoon();
+});
+$('#probe-body').addEventListener('change', () => {
+  state.settings.probeBody = $('#probe-body').value;
+  persist();
+  syncProbeBodyToModel();
+});
 $('#btn-open-studio').addEventListener('click', () => {
   const base = normalizeBase($('#probe-base').value) || 'http://127.0.0.1:8000';
   const model = $('#probe-model').value.trim() || 'default';
@@ -2342,15 +2506,21 @@ $('#btn-open-studio').addEventListener('click', () => {
     bump('baseUrl', base); bump('model', model);
     if (key) bump('apiKey', key);
   }
+  let studioBody;
+  try {
+    studioBody = JSON.stringify(Object.assign({}, JSON.parse(probeBodySource()), { stream: false }), null, 2);
+  } catch (e) {
+    studioBody = JSON.stringify({
+      model: '{{model}}',
+      messages: [{ role: 'user', content: '你好，请用一句话介绍你自己。' }],
+      temperature: 0.7, max_tokens: 512, stream: false
+    }, null, 2);
+  }
   state.current = emptyRequest({
     name: '对话补全', method: 'POST', url: '{{baseUrl}}/v1/chat/completions',
     headers: [kv('Content-Type', 'application/json'), kv('Authorization', 'Bearer {{apiKey}}', !!key)],
     bodyMode: 'json',
-    bodyRaw: JSON.stringify({
-      model: '{{model}}',
-      messages: [{ role: 'user', content: '你好，请用一句话介绍你自己。' }],
-      temperature: 0.7, max_tokens: 512, stream: false
-    }, null, 2)
+    bodyRaw: studioBody
   });
   persist(); switchView('api'); renderRequestPane();
   toast('已载入调试台，变量已同步', 'ok');
@@ -2406,6 +2576,8 @@ document.addEventListener('keydown', (e) => {
   $('#probe-key').value = state.settings.probeKey || '';
   $('#probe-timeout').value = String(state.settings.probeTimeout || 6000);
   $('#probe-stream').checked = state.settings.probeStream !== false;
+  $('#probe-body').value = state.settings.probeBody;
+  updateProbeBodyNote();
   renderSidebar();
   renderRequestPane();
   switchView(location.hash.slice(1) === 'api' ? 'api' : 'checker');
